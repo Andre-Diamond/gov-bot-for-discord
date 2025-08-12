@@ -363,8 +363,9 @@ class GovernanceBot(commands.Bot):
             
             # Determine winning vote
             total_votes = sum(results.values())
+            # If there are no votes, treat the outcome as Abstain
             if total_votes == 0:
-                final_vote = "No votes"
+                final_vote = "Abstain"
             else:
                 final_vote = max(results, key=results.get)
             
@@ -427,20 +428,39 @@ class GovernanceBot(commands.Bot):
             print(f"Error processing poll results for {gaid}: {e}")
 
     def generate_final_rational(self, vote: str, results: Dict[str, int], rationals: List[Dict[str, str]]) -> str:
-        """Generate a summary of community rationals using AI"""
+        """Generate a summary of community rationals using AI.
+
+        Handles the edge case where no votes were cast by treating the outcome as "Abstain".
+        """
         if not rationals:
             return "No rationals provided by the community."
-        
+
+        total_votes = sum(results.values())
+        if total_votes == 0:
+            effective_vote = "Abstain"
+        else:
+            effective_vote = vote if vote in results else max(results, key=results.get)
+
+        votes_for_effective = results.get(effective_vote, 0)
+
         rational_texts = "\n".join([f"- {r['user']}: {r['text']}" for r in rationals[:20]])  # Limit to 20 rationals
-        
-        prompt = f"""Based on the community vote ({vote} won with {results[vote]} votes) and the following rationals from community members, 
-        generate a concise summary (2-3 sentences) that captures the main reasons for this decision:
 
-Community Rationals:
-{rational_texts}
+        if total_votes == 0:
+            prompt = (
+                "No votes were cast in the poll. Treat this as an \"Abstain\" outcome. "
+                "Using the following rationals from community members, generate a concise summary (2-3 sentences) "
+                "that neutrally captures the main themes raised:\n\n"
+                f"Community Rationals:\n{rational_texts}\n\n"
+                "Keep it balanced and under 500 characters."
+            )
+        else:
+            prompt = (
+                f"Based on the community vote ({effective_vote} won with {votes_for_effective} votes) and the following rationals from community members, "
+                "generate a concise summary (2-3 sentences) that captures the main reasons for this decision:\n\n"
+                f"Community Rationals:\n{rational_texts}\n\n"
+                "Provide a balanced summary that reflects the community's reasoning. Keep it under 500 characters."
+            )
 
-Provide a balanced summary that reflects the community's reasoning. Keep it under 500 characters."""
-        
         try:
             summary = self.model.generate_content(prompt).text.strip()
             if len(summary) > 500:
@@ -448,7 +468,7 @@ Provide a balanced summary that reflects the community's reasoning. Keep it unde
             return summary
         except Exception as e:
             print(f"Error generating rational summary: {e}")
-            return f"The community voted {vote} based on {len(rationals)} submitted rationals."
+            return f"The community voted {effective_vote} based on {len(rationals)} submitted rationals."
 
     @check_proposals.error
     async def check_proposals_error(self, error):
