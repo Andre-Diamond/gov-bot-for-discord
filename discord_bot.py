@@ -398,39 +398,39 @@ class GovernanceBot(commands.Bot):
             else:
                 final_vote = max(results, key=results.get)
             
-        # Collect rationals from thread
-        print(f"Scanning thread {thread_id} for rationales (gaid={gaid})")
-        rationals = []
-        found_count = 0
-        inserted_count = 0
-        async for message in thread.history(limit=None, oldest_first=True):
-            if message.author.bot:
-                continue
-            parsed = self.extract_rationales_from_message(message.content)
-            if not parsed:
-                continue
-            for rational_text in parsed:
-                found_count += 1
-                rationals.append({
-                    "user": message.author.name,
-                    "text": rational_text
-                })
-                try:
-                    conn = sqlite3.connect(self.db_path)
-                    cursor = conn.cursor()
-                    cursor.execute(
-                        """
-                        INSERT OR IGNORE INTO rationals (gaid, user_id, username, rational, posted_at, message_id)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                        """,
-                        (gaid, message.author.id, message.author.name, rational_text, message.created_at, message.id),
-                    )
-                    inserted_count += cursor.rowcount if cursor.rowcount is not None else 0
-                    conn.commit()
-                    conn.close()
-                except Exception as save_err:
-                    print(f"Error saving rationale message {message.id} for {gaid}: {save_err}")
-        print(f"Rationales parsed: {found_count}, inserted: {inserted_count}")
+            # Collect rationals from thread
+            print(f"Scanning thread {thread_id} for rationales (gaid={gaid})")
+            rationals = []
+            found_count = 0
+            inserted_count = 0
+            async for message in thread.history(limit=None, oldest_first=True):
+                if message.author.bot:
+                    continue
+                parsed = self.extract_rationales_from_message(message.content)
+                if not parsed:
+                    continue
+                for rational_text in parsed:
+                    found_count += 1
+                    rationals.append({
+                        "user": message.author.name,
+                        "text": rational_text
+                    })
+                    try:
+                        conn = sqlite3.connect(self.db_path)
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            """
+                            INSERT OR IGNORE INTO rationals (gaid, user_id, username, rational, posted_at, message_id)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                            """,
+                            (gaid, message.author.id, message.author.name, rational_text, message.created_at, message.id),
+                        )
+                        inserted_count += cursor.rowcount if cursor.rowcount is not None else 0
+                        conn.commit()
+                        conn.close()
+                    except Exception as save_err:
+                        print(f"Error saving rationale message {message.id} for {gaid}: {save_err}")
+            print(f"Rationales parsed: {found_count}, inserted: {inserted_count}")
             
             # Generate final rational summary
             final_rational = self.generate_final_rational(final_vote, results, rationals)
