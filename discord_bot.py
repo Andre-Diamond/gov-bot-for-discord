@@ -48,15 +48,29 @@ class GovernanceBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
-        intents.polls = True
+        # Enable polls intent when supported by the installed discord.py version
+        if hasattr(intents, "polls"):
+            intents.polls = True
         super().__init__(command_prefix='!', intents=intents)
-        
-        self.db_path = Path("governance.db")
+
+        # Determine database path
+        db_path_env = os.getenv("DB_PATH")
+        if db_path_env:
+            self.db_path = Path(db_path_env)
+        else:
+            data_dir = Path("/app/data")
+            if data_dir.is_dir():
+                self.db_path = data_dir / "governance.db"
+            else:
+                self.db_path = Path("governance.db")
         self.init_database()
         self.model = init_gemini(os.getenv("GEMINI_MODEL", "gemini-1.5-flash"))
         
     def init_database(self):
         """Initialize SQLite database for tracking proposals"""
+        # Ensure parent directory exists (important when using /app/data)
+        if self.db_path.parent and not self.db_path.parent.exists():
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         

@@ -32,7 +32,7 @@ A Discord bot that monitors Cardano governance proposals, creates polls, and col
 1. Clone the repository:
 ```bash
 git clone <your-repo>
-cd discord_gov_bot
+cd gov-bot-for-discord
 ```
 
 2. Copy the environment example and configure:
@@ -43,7 +43,7 @@ cp env.example .env
 
 3. Build and run with Docker Compose:
 ```bash
-docker-compose up -d
+docker compose up -d --build
 ```
 
 ### Manual Installation
@@ -109,3 +109,5 @@ The bot uses SQLite to store:
 - Community rationales
 
 Database file: `governance.db`
+
+When using Docker, the database is stored in the mounted `data/` directory on the host and inside the container at `/app/data/governance.db`.

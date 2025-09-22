@@ -15,9 +15,9 @@ services:
       - POLL_DURATION_MINUTES=${POLL_DURATION_MINUTES:-20160}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-1.5-flash}
       - INITIAL_BLOCK_TIME=${INITIAL_BLOCK_TIME}
+      - DB_PATH=${DB_PATH:-/app/data/governance.db}
     volumes:
       - ./data:/app/data
-      - ./governance.db:/app/governance.db
     logging:
       driver: "json-file"
       options:
