@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application files
 COPY discord_bot.py .
-COPY script.py .
+COPY utils.py .
 
 # Create volume for database persistence
 VOLUME ["/app/data"]
