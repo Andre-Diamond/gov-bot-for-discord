@@ -88,17 +88,30 @@ class GovernanceBot(commands.Bot):
             )
         """)
         
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS rationals (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                gaid TEXT,
-                user_id INTEGER,
-                username TEXT,
-                rational TEXT,
-                posted_at TIMESTAMP,
-                FOREIGN KEY(gaid) REFERENCES proposals(gaid)
-            )
-        """)
+		cursor.execute("""
+			CREATE TABLE IF NOT EXISTS rationals (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				gaid TEXT,
+				user_id INTEGER,
+				username TEXT,
+				rational TEXT,
+				posted_at TIMESTAMP,
+				message_id INTEGER,
+				FOREIGN KEY(gaid) REFERENCES proposals(gaid)
+			)
+		""")
+
+		# Attempt lightweight migration for older databases
+		try:
+			cursor.execute("ALTER TABLE rationals ADD COLUMN message_id INTEGER")
+			print("Database migration: added message_id to rationals table")
+		except Exception:
+			# Column likely already exists
+			pass
+		# Ensure a unique index to dedupe rationale messages per proposal
+		cursor.execute(
+			"CREATE UNIQUE INDEX IF NOT EXISTS idx_rationals_gaid_message ON rationals (gaid, message_id)"
+		)
         
         conn.commit()
         conn.close()
@@ -199,7 +212,7 @@ class GovernanceBot(commands.Bot):
             adastat_link = links["adastat"].format(ada_id=ada_id)
             govtool_link = links["govtool"].format(gaid=gaid)
         
-        message = f"""# {title}
+		message = f"""# {title}
 
 **GAID:** `{gaid}`
 **Action Type:** {action_type}
@@ -210,7 +223,7 @@ class GovernanceBot(commands.Bot):
 
 **Links:** [AdaStat]({adastat_link}) | [GovTool]({govtool_link})
 
-*Please vote below and add your rationale as a comment starting with "RATIONAL:"*"""
+		*Please vote below and add your rationale as a comment starting with "RATIONAL:" or "RATIONALE:" (case-insensitive).*"""
         
         # Ensure message doesn't exceed Discord's limit
         if len(message) > 2000:
@@ -383,28 +396,39 @@ class GovernanceBot(commands.Bot):
             else:
                 final_vote = max(results, key=results.get)
             
-            # Collect rationals from thread
-            rationals = []
-            async for message in thread.history(limit=200):
-                if message.author.bot:
-                    continue
-                    
-                if message.content.startswith("RATIONAL:"):
-                    rational_text = message.content[9:].strip()
-                    rationals.append({
-                        "user": message.author.name,
-                        "text": rational_text
-                    })
-                    
-                    # Save to database
-                    conn = sqlite3.connect(self.db_path)
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        INSERT INTO rationals (gaid, user_id, username, rational, posted_at)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (gaid, message.author.id, message.author.name, rational_text, message.created_at))
-                    conn.commit()
-                    conn.close()
+			# Collect rationals from thread
+			print(f"Scanning thread {thread_id} for rationales (gaid={gaid})")
+			rationals = []
+			found_count = 0
+			inserted_count = 0
+			async for message in thread.history(limit=None, oldest_first=True):
+				if message.author.bot:
+					continue
+				parsed = self.extract_rationales_from_message(message.content)
+				if not parsed:
+					continue
+				for rational_text in parsed:
+					found_count += 1
+					rationals.append({
+						"user": message.author.name,
+						"text": rational_text
+					})
+					try:
+						conn = sqlite3.connect(self.db_path)
+						cursor = conn.cursor()
+						cursor.execute(
+							"""
+							INSERT OR IGNORE INTO rationals (gaid, user_id, username, rational, posted_at, message_id)
+							VALUES (?, ?, ?, ?, ?, ?)
+							""",
+							(gaid, message.author.id, message.author.name, rational_text, message.created_at, message.id),
+						)
+						inserted_count += cursor.rowcount if cursor.rowcount is not None else 0
+						conn.commit()
+						conn.close()
+					except Exception as save_err:
+						print(f"Error saving rationale message {message.id} for {gaid}: {save_err}")
+			print(f"Rationales parsed: {found_count}, inserted: {inserted_count}")
             
             # Generate final rational summary
             final_rational = self.generate_final_rational(final_vote, results, rationals)
@@ -483,6 +507,67 @@ class GovernanceBot(commands.Bot):
         except Exception as e:
             print(f"Error generating rational summary: {e}")
             return f"The community voted {effective_vote} based on {len(rationals)} submitted rationals."
+
+	def extract_rationales_from_message(self, content: str) -> List[str]:
+		"""Extract one or more rationale lines from a message.
+
+		Matches lines starting with RATIONAL: or RATIONALE:, case-insensitive, allowing leading
+		whitespace, quote markers (>), and colon or hyphen as delimiter.
+		"""
+		if not content:
+			return []
+		pattern = re.compile(r"^\s*(?:>+)?\s*(?:RATIONAL|RATIONALE)\s*[:\-]\s*(.+)$", re.IGNORECASE)
+		results: List[str] = []
+		for line in content.splitlines():
+			m = pattern.match(line)
+			if m:
+				text = m.group(1).strip()
+				if text:
+					results.append(text)
+		return results
+
+	def get_gaid_by_thread_id(self, thread_id: int) -> Optional[str]:
+		"""Resolve proposal GAID by Discord thread_id."""
+		conn = sqlite3.connect(self.db_path)
+		cursor = conn.cursor()
+		cursor.execute("SELECT gaid FROM proposals WHERE thread_id = ?", (thread_id,))
+		row = cursor.fetchone()
+		conn.close()
+		return row[0] if row else None
+
+	async def on_message(self, message: discord.Message):
+		"""Capture rationales in real time when members post them in proposal threads."""
+		try:
+			if message.author.bot:
+				return
+			channel = message.channel
+			# Only track messages in threads we created for proposals
+			if isinstance(channel, discord.Thread):
+				gaid = self.get_gaid_by_thread_id(channel.id)
+				if gaid:
+					parsed = self.extract_rationales_from_message(message.content)
+					if parsed:
+						for rational_text in parsed:
+							try:
+								conn = sqlite3.connect(self.db_path)
+								cursor = conn.cursor()
+								cursor.execute(
+									"""
+									INSERT OR IGNORE INTO rationals (gaid, user_id, username, rational, posted_at, message_id)
+									VALUES (?, ?, ?, ?, ?, ?)
+									""",
+									(gaid, message.author.id, message.author.name, rational_text, message.created_at, message.id),
+								)
+								conn.commit()
+								conn.close()
+								print(f"Captured rationale from {message.author.name} in {gaid} (message_id={message.id})")
+							except Exception as save_err:
+								print(f"Error saving live rationale message {message.id} for {gaid}: {save_err}")
+		except Exception as e:
+			print(f"Error in on_message handler: {e}")
+		finally:
+			# Ensure other commands still work
+			await self.process_commands(message)
 
     @check_proposals.error
     async def check_proposals_error(self, error):
