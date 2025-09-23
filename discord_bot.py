@@ -20,6 +20,10 @@ from utils import (
     lovelace_to_ada, link_templates, init_gemini, fetch_meta
 )
 
+# Optional: load environment variables from a .env file
+# from dotenv import load_dotenv
+# load_dotenv()
+
 # Bot configuration
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID", "0"))

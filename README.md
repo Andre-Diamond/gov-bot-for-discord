@@ -62,7 +62,22 @@ export GEMINI_API_KEY="your_api_key"
 # Optional:
 export KOIOS_API_TOKEN="your_koios_token"
 ```
-  - Or create .evn file in the directory. See env.example file
+  - Or create a `.env` file in the directory. See `env.example` file
+
+### Optional: Use a .env file
+
+If you prefer not to export variables in your shell, you can store them in a `.env` file and have the script load them automatically.
+
+1) Create a `.env` file next to `discord_bot.py` with your values (see `env.example`).
+
+2) In `discord_bot.py`, near the top of the file (above the environment reads), **uncomment** these two lines:
+
+```python
+from dotenv import load_dotenv
+load_dotenv()
+```
+
+After that, running `python discord_bot.py` will pick up variables from `.env` automatically.
 
 4. Run the bot:
 ```bash
