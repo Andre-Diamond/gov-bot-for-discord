@@ -302,19 +302,26 @@ class GovernanceBot(commands.Bot):
                     continue
                 
                 try:
-                    # Generate summary
-                    summary = self.summarize_proposal(prop)
+                    # Generate summary (offload blocking call)
+                    summary = await asyncio.to_thread(self.summarize_proposal, prop)
                     
-                    # Create thread
+                    # Create thread (handle ForumChannel vs TextChannel APIs)
                     thread_title = f"{pick_title(prop)[:90]} ({gaid[:10]}...)"
-                    thread = await channel.create_thread(
-                        name=thread_title,
-                        type=discord.ChannelType.public_thread,
-                        auto_archive_duration=10080  # 7 days
-                    )
-                    
-                    # Post summary
-                    await thread.send(summary)
+                    if isinstance(channel, discord.ForumChannel):
+                        # Forum channels require initial content on creation and do not accept 'type'
+                        thread = await channel.create_thread(
+                            name=thread_title,
+                            auto_archive_duration=10080,  # 7 days
+                            content=summary,
+                        )
+                    else:
+                        thread = await channel.create_thread(
+                            name=thread_title,
+                            type=discord.ChannelType.public_thread,
+                            auto_archive_duration=10080,  # 7 days
+                        )
+                        # Post summary after creating a normal text channel thread
+                        await thread.send(summary)
                     
                     # Create poll
                     poll = discord.Poll(
