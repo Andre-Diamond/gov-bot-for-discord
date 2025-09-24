@@ -309,19 +309,22 @@ class GovernanceBot(commands.Bot):
                     thread_title = f"{pick_title(prop)[:90]} ({gaid[:10]}...)"
                     if isinstance(channel, discord.ForumChannel):
                         # Forum channels require initial content on creation and do not accept 'type'
-                        thread = await channel.create_thread(
+                        created = await channel.create_thread(
                             name=thread_title,
                             auto_archive_duration=10080,  # 7 days
                             content=summary,
                         )
                     else:
-                        thread = await channel.create_thread(
+                        created = await channel.create_thread(
                             name=thread_title,
                             type=discord.ChannelType.public_thread,
                             auto_archive_duration=10080,  # 7 days
                         )
                         # Post summary after creating a normal text channel thread
-                        await thread.send(summary)
+                        await created.send(summary)
+
+                    # Resolve underlying Thread object in case a ThreadWithMessage was returned
+                    thread = created.thread if hasattr(created, "thread") else created
                     
                     # Create poll
                     poll = discord.Poll(
